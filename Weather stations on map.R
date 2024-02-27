@@ -16,7 +16,6 @@ stations_map <- ggplot()+
   xlab("Longitude")+
   ylab("Latitude")
 
-## ---- mapStations
 stations_map
 
 
