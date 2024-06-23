@@ -1,5 +1,4 @@
 
-install.packages("ggmap")
 library(ggmap)
 
 

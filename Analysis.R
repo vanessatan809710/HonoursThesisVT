@@ -5,18 +5,27 @@ analysis <- function(dataset) {
   n_year <- 2023 - 1970 + 1
   n_day <- 365
   
-  clean_dataset <- dataset%>%
-    dplyr::select(Year, Day, max_temp)%>%
-    fill_na
+  #remove irrelevant columns and use linear interpolation on missing values
+  temp_dataset <- dataset%>%
+    dplyr::select(Year, Day, max_temp)
+  clean_dataset <- data.frame(Year = temp_dataset$Year, Day = temp_dataset$Day, 
+                              max_temp = na.interp(temp_dataset$max_temp))
+  
+  #form dataset used to fit the model with only complete years (1970 to 2023)
+  clean_training <- clean_dataset%>%
+    filter(Year <= 2023)
+  #form dataset to plot for actuals (2024 up to latest available)
+  clean_actuals <- clean_dataset%>%
+    filter(Year == 2024) 
   
   #plot temperatures by year- check no gaps in data
-  temp_by_year <- ggplot(clean_dataset, aes(x = Year, y = max_temp))+
+  temp_by_year <- ggplot(clean_training, aes(x = Year, y = max_temp))+
     geom_point()+
     ggtitle("Maximum Temperatures")+
     xlab("Day")+ 
     ylab(expression(paste("Temperature", " (in ", degree,"C)")))
   #plot curve of maximum temperatures throughout years
-  rainbow_plot_temps <- ggplot(clean_dataset, aes(x = Day, y = max_temp, group = Year, col = Year))+
+  rainbow_plot_temps <- ggplot(clean_training, aes(x = Day, y = max_temp, group = Year, col = Year))+
     stat_smooth(aes(y = max_temp, x = Day), method = lm, formula = y ~ poly(x, 5), se = FALSE)+
     ggtitle("Polynomial Smoothed Daily Maximum Temperature")+
     xlab("Day")+ 
@@ -24,11 +33,11 @@ analysis <- function(dataset) {
     scale_color_gradientn(colours = rainbow(4))
   
   #fit model and forecast for 1 year
-  parameters <- fit_evgam(clean_dataset)
-  forecast <- forecast_evgam(clean_dataset)
+  parameters <- fit_evgam(clean_training)
+  forecast <- forecast_evgam(clean_training)
   
   Forecast_2024 <- data.frame(Year = rep(2024, 365), Day = 1:n_day, max_temp = forecast$location$estimate)
-  Forecast_and_Data <- rbind(clean_dataset, Forecast_2024)
+  Forecast_and_Data <- rbind(clean_training, Forecast_2024)
   
   #plots of results
   forecast_plot_2024 <- ggplot(Forecast_2024, aes(x = Day, y = max_temp))+
@@ -37,19 +46,35 @@ analysis <- function(dataset) {
     xlab("Day") + 
     ylab(expression(paste("Temperature", " (in ", degree,"C)")))
   
-  forecast_rainbow_plot <- ggplot(Forecast_and_Data, aes(x = Day, y = max_temp, group = Year, col = Year))+
-    stat_smooth(aes(y = max_temp, x = Day), method = lm, formula = y ~ poly(x, 5), se = FALSE)+
-    ggtitle("Polynomial Smoothed Daily Maximum Temperature Forecast")+
-    xlab("Day")+ 
-    ylab(expression(paste("Temperature", " (in ", degree,"C)")))+
-    scale_color_gradientn(colours = rainbow(4))
+  #plot of comparison to actual
+  forecast_plot_2024 <- ggplot(Forecast_2024, aes(x = Day, y = max_temp))+
+    geom_line()+
+    ggtitle("Forecasted Location Parameter and Observed Temperatures by Day")+
+    xlab("Day") + 
+    ylab(expression(paste("Temperature", " (in ", degree,"C)")))
   
-  output <- list(temp_by_year, rainbow_plot_temps, forecast_plot_2024, forecast_rainbow_plot)
+  #forecast_rainbow_plot <- ggplot(Forecast_and_Data, aes(x = Day, y = max_temp, group = Year, col = Year))+
+  #  stat_smooth(aes(y = max_temp, x = Day), method = lm, formula = y ~ poly(x, 5), se = FALSE)+
+  #  ggtitle("Polynomial Smoothed Daily Maximum Temperature Forecast")+
+  #  xlab("Day")+ 
+  #  ylab(expression(paste("Temperature", " (in ", degree,"C)")))+
+  #  scale_color_gradientn(colours = rainbow(4))
+  forecast_plot_2024_vs <- ggplot()+
+    geom_line(Forecast_2024, mapping = aes(x = Day, y = max_temp))+
+    geom_point(clean_actuals, mapping = aes(x = Day, y = max_temp))+
+    ggtitle("Forecasted Location Parameter and Observed Temperatures by Day")+
+    xlab("Day") + 
+    ylab(expression(paste("Temperature", " (in ", degree,"C)")))
+  
+  output <- list(temp_by_year, rainbow_plot_temps, forecast_plot_2024, forecast_plot_2024_vs)
   return(output)
 }
 
 #perform analysis
-
+#generates plots for each: 
+#visualisation of distribution between years
+#visualisation of distribution between days for each year
+#forecasts, existing data 2024 against forecasts
 
 Adelaide_plots <- analysis(Adelaide)
 Albany_plots <- analysis(Albany)

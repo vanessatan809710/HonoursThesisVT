@@ -1,3 +1,93 @@
+library(tidyverse)
+library(evgam)
+library(forecast)
+
+#to combine max temps from different codes for same station
+join_stations <- function(Data1, Data2) { #Data 1 and Data 2 are dataframes with BOM station data with the same columns but different observations
+  if(length(Data1$Day) <= length(Data2$Day)){
+    Data <- Data2
+    for (i in 1:length(Data2$Day)) { #replace NA values with those in corresponding time in other dataset
+      if(is.na(Data$Maximum.temperature..Degree.C.[i]) && length(Data1$Maximum.temperature..Degree.C.[which(Data1$Year == Data$Year[i] & Data1$Month == Data$Month[i] & Data1$Day == Data$Day[i])]) > 0 
+         && !is.na(Data1$Maximum.temperature..Degree.C.[which(Data1$Year == Data$Year[i] & Data1$Month == Data$Month[i] & Data1$Day == Data$Day[i])])){
+        Data$Maximum.temperature..Degree.C.[i] <- Data1$Maximum.temperature..Degree.C.[which(Data1$Year == Data$Year[i] & Data1$Month == Data$Month[i] & Data1$Day == Data$Day[i])]
+        Data$Bureau.of.Meteorology.station.number[i] <- Data1$Bureau.of.Meteorology.station.number[which(Data1$Year == Data$Year[i] & Data1$Month == Data$Month[i] & Data1$Day == Data$Day[i])]
+      } else {
+      }
+    } #add extra columns if time range of data 1 not included in range of data 2
+    Data <- rbind(Data, Data1)%>%
+      distinct_at(vars(Year, Month, Day), .keep_all = TRUE) #remove duplicate rows
+  } else {
+    Data <- Data1 #same as above except case when data 1 is longer than data 2
+    for (i in 1:length(Data1$Day)) {
+      if(is.na(Data$Maximum.temperature..Degree.C.[i]) && length(Data2$Maximum.temperature..Degree.C.[which(Data2$Year == Data$Year[i] & Data2$Month == Data$Month[i] & Data2$Day == Data$Day[i])]) > 0 
+         && !is.na(Data2$Maximum.temperature..Degree.C.[which(Data2$Year == Data$Year[i] & Data2$Month == Data$Month[i] & Data2$Day == Data$Day[i])])){
+        Data$Maximum.temperature..Degree.C.[i] <- Data2$Maximum.temperature..Degree.C.[which(Data2$Year == Data$Year[i] & Data2$Month == Data$Month[i] & Data2$Day == Data$Day[i])]
+        Data$Bureau.of.Meteorology.station.number[i] <- Data2$Bureau.of.Meteorology.station.number[which(Data2$Year == Data$Year[i] & Data2$Month == Data$Month[i] & Data2$Day == Data$Day[i])]
+      } else {
+      }
+    }
+    Data <- rbind(Data, Data2)%>%
+      distinct_at(vars(Year, Month, Day), .keep_all = TRUE)
+  }
+  return(Data)
+}
+
+
+#to change from day of month to day of year
+rename_days <- function(data) {
+  data%>%
+    group_by(Year)%>%
+    mutate(Day = row_number(Year))
+}
+
+#fit gev for each year, with location varying by day
+fit_evgam <- function(Data) {
+  n_year <- 2023 - 1970 + 1
+  n_day <- 365
+  location <- matrix(0, nrow = n_year, ncol = n_day) 
+  logscale <- matrix(0, nrow = n_year, ncol = 1)
+  shape <- matrix(0, nrow = n_year, ncol = 1)
+  location_para <- matrix(0, nrow = n_year, ncol = 10)
+  for(t in 1970:2023) {
+    Dat <- Data%>%
+      filter(Year == t)
+    cs <- list(max_temp ~ s(Day, k = 10, bs = "cr"), ~1, ~1)
+    fit <- evgam(cs, Dat, family = "gev")
+    if(length(fit$location$fitted) != 365){
+      return(t)
+    }
+    location[t - 1969, ] <- fit$location$fitted
+    location_para[t - 1969, ] <- fit$location$coefficients
+    logscale[t - 1969, ] <- fit$logscale$fitted[1]
+    shape[t - 1969, ] <- fit$shape$fitted[1]
+  }
+  parameters <- list(location = list(estimate = location, parameter = location_para, basis = fit$location$X),
+                     logscale = logscale, shape = shape)
+  return(parameters)
+}
+
+
+#forecast the gev for one year in the future - check, add comment explaining 
+forecast_evgam <- function(Data) {
+  parameters <- fit_evgam(Data)
+  
+  n <- dim(parameters$location$parameter)[2]
+  location_parameters_predicted <- matrix(0, nrow = n)
+  for(i in 1:n){
+    location_parameters_predicted[i] <- forecast(auto.arima(parameters$location$parameter[,i], ic='aicc'), h=1)$mean[1]
+  }
+  
+  location_predicted <- as.vector(parameters$location$basis%*%location_parameters_predicted)
+  scale_predicted <- exp(forecast(auto.arima(parameters$logscale, ic = "aicc"), h=1)$mean[1])
+  shape_predicted <- forecast(auto.arima(parameters$shape, ic = "aicc"), h=1)$mean[1]
+  
+  parameters_predicted <- list(location = list(estimate = location_predicted, parameters = location_parameters_predicted),
+                               scale = scale_predicted, shape = shape_predicted)
+  
+  return(parameters_predicted)
+}
+
+
 #Read in datasets and combine for each station
 Adelaide1 <- read.csv("Data23000Adelaide.csv", header = TRUE)
 Adelaide2 <- read.csv("Data23090Adelaide.csv", header = TRUE)
@@ -1309,3 +1399,177 @@ Yamba <- Yamba%>%
   select(station_name, station_num, Year, Month, Day, max_temp)%>%
   rename_days()
 
+#Function to perform analysis on every dataset
+
+analysis <- function(dataset) {
+  #Initial cleaning- imput NA values
+  n_year <- 2023 - 1970 + 1
+  n_day <- 365
+  
+  #remove irrelevant columns and use linear interpolation on missing values
+  temp_dataset <- dataset%>%
+    dplyr::select(Year, Day, max_temp)
+  clean_dataset <- data.frame(Year = temp_dataset$Year, Day = temp_dataset$Day, 
+                              max_temp = na.interp(temp_dataset$max_temp))
+  
+  #form dataset used to fit the model with only complete years (1970 to 2023)
+  clean_training <- clean_dataset%>%
+    filter(Year <= 2023)
+  #form dataset to plot for actuals (2024 up to latest available)
+  clean_actuals <- clean_dataset%>%
+    filter(Year == 2024) 
+  
+  # #plot temperatures by year- check no gaps in data
+  # temp_by_year <- ggplot(clean_training, aes(x = Year, y = max_temp))+
+  #   geom_point()+
+  #   ggtitle("Maximum Temperatures")+
+  #   xlab("Day")+ 
+  #   ylab(expression(paste("Temperature", " (in ", degree,"C)")))
+  # #plot curve of maximum temperatures throughout years
+  # rainbow_plot_temps <- ggplot(clean_training, aes(x = Day, y = max_temp, group = Year, col = Year))+
+  #   stat_smooth(aes(y = max_temp, x = Day), method = lm, formula = y ~ poly(x, 5), se = FALSE)+
+  #   ggtitle("Polynomial Smoothed Daily Maximum Temperature")+
+  #   xlab("Day")+ 
+  #   ylab(expression(paste("Temperature", " (in ", degree,"C)")))+
+  #   scale_color_gradientn(colours = rainbow(4))
+  # 
+  #fit model and forecast for 1 year
+  parameters <- fit_evgam(clean_training)
+  forecast <- forecast_evgam(clean_training)
+  
+  Forecast_2024 <- data.frame(Year = rep(2024, 365), Day = 1:n_day, max_temp = forecast$location$estimate)
+  Forecast_and_Data <- rbind(clean_training, Forecast_2024)
+  
+  # #plots of results
+  # forecast_plot_2024 <- ggplot(Forecast_2024, aes(x = Day, y = max_temp))+
+  #   geom_line()+
+  #   ggtitle("Forecasted Location Parameter")+
+  #   xlab("Day") + 
+  #   ylab(expression(paste("Temperature", " (in ", degree,"C)")))
+  
+  #plot of comparison to actual
+  # forecast_plot_2024_vs <- ggplot()+
+  #   geom_line(Forecast_2024, mapping = aes(x = Day, y = max_temp))+
+  #   geom_point(clean_actuals, mapping = aes(x = Day, y = max_temp))+
+  #   ggtitle("Forecasted Location Parameter and Observed Temperatures")+
+  #   xlab("Day") + 
+  #   ylab(expression(paste("Temperature", " (in ", degree,"C)")))
+  
+  output <- list(
+    #temp_by_year, rainbow_plot_temps, forecast_plot_2024, forecast_plot_2024_vs
+    Forecast_2024, clean_actuals)
+  return(output)
+}
+
+
+Data_to_analyse <- list(
+  Adelaide,
+  Albany,
+  AliceSprings,
+  Amberley,
+  Barcaldine,
+  Bathurst,
+  Birdsville,
+  Bourke,
+  Bridgetown,
+  BrisbaneAirport,
+  Broome,
+  Bundaberg,
+  Burketown,
+  ButlersGorge,
+  Cabramurra,
+  Cairns,
+  Canberra,
+  CapeBorda,
+  CapeBruny,
+  CapeLeeuwin,
+  CapeMoreton,
+  CapeOtway,
+  Carnarvon,
+  Ceduna,
+  Charleville,
+  ChartersTowers,
+  Cobar,
+  CoffsHarbour,
+  Cunderdin,
+  Dalwallinu,
+  Darwin,
+  Deniliquin,
+  Dubbo,
+  Esperance,
+  Eucla,
+  Forrest,
+  GaboIsland,
+  Gayndah,
+  Georgetown,
+  Geraldton,
+  Giles,
+  Grove,
+  HallsCreek,
+  Hobart,
+  HornIsland,
+  Inverell,
+  KalgoorlieBoulder,
+  Kalumburu,
+  Karijini,
+  Katanning,
+  Kerang,
+  Kyancutta,
+  Larapuna,
+  Launceston,
+  Laverton,
+  Longreach,
+  LowHead,
+  Mackay,
+  MarbleBar,
+  Marree,
+  Meekatharra,
+  Melbourne,
+  Merredin,
+  Mildura,
+  Miles,
+  Morawa,
+  Moree,
+  MoruyaHeads,
+  MountGambier,
+  Nhill,
+  Normanton,
+  Nowra,
+  Nuriootpa,
+  Orbost,
+  PerthAirport,
+  PointPerpendicular,
+  PortHedland,
+  PortMacquarie,
+  RabbitFlat,
+  RichmondNSW,
+  RichmondQLD,
+  Robe,
+  Rockhampton,
+  Rutherglen,
+  Sale,
+  Scone,
+  Snowtown,
+  StGeorge,
+  Sydney,
+  Tarcoola,
+  TennantCreek,
+  Thargomindah,
+  Tibooburra,
+  Townsville,
+  VictoriaRiverDowns,
+  WaggaWagga,
+  Walgett,
+  Wandering,
+  Weipa,
+  WestWyalong,
+  Wilcannia,
+  Williamtown,
+  WilsonsPromontory,
+  Woomera,
+  Yamba
+)
+
+plot_data <- lapply(Data_to_analyse, analysis)
+
+saveRDS(plot_data, file = "plot_data.RDS")
