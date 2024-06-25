@@ -1437,6 +1437,7 @@ analysis <- function(dataset) {
   parameters <- fit_evgam(clean_training)
   forecast <- forecast_evgam(clean_training)
   
+  paras_forecast <- c(forecast$scale, forecast$shape)
   Forecast_2024 <- data.frame(Year = rep(2024, 365), Day = 1:n_day, max_temp = forecast$location$estimate)
   Forecast_and_Data <- rbind(clean_training, Forecast_2024)
   
@@ -1457,7 +1458,7 @@ analysis <- function(dataset) {
   
   output <- list(
     #temp_by_year, rainbow_plot_temps, forecast_plot_2024, forecast_plot_2024_vs
-    Forecast_2024, clean_actuals)
+    Forecast_2024, clean_actuals, clean_training, paras_forecast)
   return(output)
 }
 
