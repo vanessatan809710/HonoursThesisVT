@@ -1309,3 +1309,54 @@ Yamba <- Yamba%>%
   select(station_name, station_num, Year, Month, Day, max_temp)%>%
   rename_days()
 
+
+#count missing maximum temperatures
+
+Data_to_check <- list(Adelaide, Albany, AliceSprings, Amberley, Barcaldine, Bathurst,
+             Birdsville, Boulia, Bourke, Bridgetown, BrisbaneAirport, Broome, Bundaberg, Burketown,
+             ButlersGorge, Cabramurra, Cairns, Camooweal, Canberra, CapeBorda, CapeBruny, CapeLeeuwin,
+             CapeMoreton, CapeOtway, Carnarvon, Ceduna, Charleville, ChartersTowers, Cobar,
+             CoffsHarbour, Cunderdin, Dalwallinu, Darwin, Deniliquin, Dubbo, Esperance,
+             Eucla, Forrest, GaboIsland, Gayndah, Georgetown, Geraldton, Giles, Grove, Gunnedah,
+             HallsCreek, Hobart, HornIsland, Inverell, KalgoorlieBoulder, Kalumburu,
+             Karijini, Katanning, Kerang, Kyancutta, Larapuna, Launceston, Laverton, Learmonth,
+             Longreach, LowHead, Mackay, MarbleBar, Marree, Meekatharra, Melbourne, Merredin,
+             Mildura, Miles, Morawa, Moree, MoruyaHeads, MountGambier, Nhill, Normanton,
+             Nowra, Nuriootpa, Oodnadatta, Orbost, Palmerville, PerthAirport, PointPerpendicular, PortHedland,
+             PortLincoln, PortMacquarie, RabbitFlat, RichmondNSW, RichmondQLD, Robe, Rockhampton, 
+             Rutherglen, Sale, Scone, Snowtown, StGeorge, Sydney, Tarcoola, TennantCreek,
+             Thargomindah, Tibooburra, Townsville, VictoriaRiverDowns, WaggaWagga, Walgett,
+             Wandering, Weipa, WestWyalong, Wilcannia, Williamtown, WilsonsPromontory,
+             Woomera, Yamba
+)
+
+Data_names <- c("Adelaide", "Albany", "AliceSprings", "Amberley", "Barcaldine", "Bathurst","
+                      Birdsville", "Boulia", "Bourke", "Bridgetown", "BrisbaneAirport", "Broome", "Bundaberg", "Burketown","
+                      ButlersGorge", "Cabramurra", "Cairns", "Camooweal", "Canberra", "CapeBorda", "CapeBruny", "CapeLeeuwin","
+                      CapeMoreton", "CapeOtway", "Carnarvon", "Ceduna", "Charleville", "ChartersTowers", "Cobar","
+                      CoffsHarbour", "Cunderdin", "Dalwallinu", "Darwin", "Deniliquin", "Dubbo", "Esperance","
+                      Eucla", "Forrest", "GaboIsland", "Gayndah", "Georgetown", "Geraldton", "Giles", "Grove", "Gunnedah","
+                      HallsCreek", "Hobart", "HornIsland", "Inverell", "KalgoorlieBoulder", "Kalumburu","
+                      Karijini", "Katanning", "Kerang", "Kyancutta", "Larapuna", "Launceston", "Laverton", "Learmonth","
+                      Longreach", "LowHead", "Mackay", "MarbleBar", "Marree", "Meekatharra", "Melbourne", "Merredin","
+                      Mildura", "Miles", "Morawa", "Moree", "MoruyaHeads", "MountGambier", "Nhill", "Normanton","
+                      Nowra", "Nuriootpa", "Oodnadatta", "Orbost", "Palmerville", "PerthAirport", "PointPerpendicular", "PortHedland","
+                      PortLincoln", "PortMacquarie", "RabbitFlat", "RichmondNSW", "RichmondQLD", "Robe", "Rockhampton", "
+                      Rutherglen", "Sale", "Scone", "Snowtown", "StGeorge", "Sydney", "Tarcoola", "TennantCreek","
+                      Thargomindah", "Tibooburra", "Townsville", "VictoriaRiverDowns", "WaggaWagga", "Walgett","
+                      Wandering", "Weipa", "WestWyalong", "Wilcannia", "Williamtown", "WilsonsPromontory","
+                      Woomera", "Yamba"
+)
+
+count_na <- function(data) {
+  sum(is.na(data$max_temp))
+}
+
+check_na <- data.frame("Station_name" = Data_names, "num_missing" = sapply(Data_to_check, count_na))
+
+#palmerville later removed from analysis due to gap in data, so station with most missing is Burketown
+max_percent_na <- 2070/ 19882
+
+#5 of the 7 removed stations listed in over 5% missing, only 
+over_0.05_missing <- filter(check_na, num_missing >= 0.05*19882)
+
